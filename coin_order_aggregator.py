@@ -124,7 +124,7 @@ async def extract_exchanges_orders() -> Tuple[typing.List, typing.List]:
 
 def rate_limiter(rate_per_sec: float, capacity: int):
     """
-    Async rate limiter decorator (token bucket) — no classes.
+    Async rate limiter decorator (token bucket).
     rate_per_sec: tokens refilled per second
     capacity: max number of tokens in the bucket
     """
