@@ -11,6 +11,10 @@ Build a BTC-USD order book aggregator that pulls live data from multiple crypto 
 2. Configure different exchange URLS in variable :EXCHANGE_URLS.
 3. First method: `calculate_price` will be invoked that will fetch orders from all configured exchanges.
 4. Second, `execute_order` method would compute the price of the given order quantity of BTC.
+5. Explored api docs: <br>
+a) https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-book 
+<br>
+b) https://docs.gemini.com/rest/market-data#get-current-order-book
 
 
 **Execution Instructions**

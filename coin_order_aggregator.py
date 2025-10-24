@@ -27,21 +27,15 @@ parser.add_argument("--qty", type=int, default=10, help="BTC Quantity to buy/sel
 def main():
     args = parser.parse_args()
     target_qty = args.qty
-    bid_price, ask_price = asyncio.run(calculate_price(target_qty))
+    bid_price, ask_price = asyncio.run(calculate_order_price(target_qty))
     print(f"To buy: {target_qty} BTC: {fmt_currency(ask_price)}")
     print(f"To sell: {target_qty} BTC: {fmt_currency(bid_price)}")
-
-async def monitor():
-    while True:
-        tasks = asyncio.all_tasks()
-        print(f"Active tasks: {[t.get_coro().__name__ for t in tasks]}")
-        await asyncio.sleep(0.5)
 
 def fmt_currency(value: Decimal, currency_symbol: str = "$") -> str:
     v = value.quantize(Decimal('0.01'))
     return f"{currency_symbol}{v:,.2f}"
 
-async def calculate_price(qty) -> Tuple[Decimal, Decimal]:
+async def calculate_order_price(qty) -> Tuple[Decimal, Decimal]:
     bids, asks = await extract_exchanges_orders()
     bid_total_cost, bid_qty_filled = await execute_order(bids, qty, 'bids')
     handle_incomplete_demanded_qty(qty, bid_qty_filled)
@@ -98,24 +92,20 @@ async def extract_exchanges_orders() -> Tuple[typing.List, typing.List]:
     """
     bids = []
     asks = []
-    orders = []
-    exchange_error_count =0
-    for coin_exchange in EXCHANGE_URLS.keys():
-        try:
-            json_data = await fetch_url(EXCHANGE_URLS[coin_exchange])
+    exchange_error_count = 0
+    exchange_responses = await asyncio.gather(
+        coinbase_orders_v2(),
+        gemini_orders_v2(),
+    return_exceptions=True
+    )
 
-            if coin_exchange == Exchanges.GEMINI:
-                orders = await gemini_orders(json_data)
-            elif coin_exchange == Exchanges.COINBASE:
-                orders = await coinbase_orders(json_data)
-        except Exception as e:
-            print(f"An error occurred: {e}")
+    for resp in exchange_responses:
+        if isinstance(resp, Exception):
             exchange_error_count += 1
-            continue
+        elif resp:
+            bids.extend(resp[0])
+            asks.extend(resp[1])
 
-        if orders:
-            bids.extend(orders[0])
-            asks.extend(orders[1])
     if exchange_error_count == len(EXCHANGE_URLS):
         raise Exception("Exchanges are down. Please try again.")
 
@@ -169,6 +159,7 @@ def retry_with_backoff(retries=3, backoff_in_ms=100):
                 except Exception as e:
                     print('Fetch error:', e)
 
+                    # Raise error if retry limit over or error is not retryable.
                     if x == retries or not _is_retryable_exceptions(e):
                         raise
                     else:
@@ -187,22 +178,25 @@ def _is_retryable_exceptions(ex) -> bool:
             or isinstance(ex, httpx.RequestError)
             or isinstance(ex, httpx.TimeoutException))
 
-async def coinbase_orders(json_data):
-    def extract(json_key):
+async def coinbase_orders_v2():
+    def extract(json_data, json_key):
         return [[Decimal(trade[0]), Decimal(trade[1])] for trade in json_data[json_key]]
 
-    if not json_data:
+    orders = await fetch_url(EXCHANGE_URLS[Exchanges.COINBASE])
+
+    if not orders:
         return []
-    return extract('bids'), extract('asks')
 
+    return extract(orders, 'bids'), extract(orders, 'asks')
 
-async def gemini_orders(json_data):
-    def extract(json_key):
+async def gemini_orders_v2():
+    def extract(json_data, json_key):
         return [[Decimal(trade['price']), Decimal(trade['amount'])] for trade in json_data[json_key]]
 
-    if not json_data:
+    orders = await fetch_url(EXCHANGE_URLS[Exchanges.GEMINI])
+    if not orders:
         return []
-    return extract('bids'), extract('asks')
+    return extract(orders, 'bids'), extract(orders, 'asks')
 
 
 @rate_limiter(rate_per_sec=RATE_LIMIT_INTERVAL_SECONDS, capacity=RATE_LIMIT_TOKEN)
